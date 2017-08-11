@@ -6,18 +6,19 @@
 package game.units;
 
 import java.awt.Image;
+import javax.imageio.ImageIO;
 
 /**
  *
  * @author Алексей
  */
-public interface IUnits {
-    public int getX();
-    public int getY();
-    public void setX(int x);
-    public void setY(int y);
-    public int getColor();
-    public int getHeight();
+public interface ITowerType {
+    public Image getImage();
     public int getWidth();
-    public Image getImg();
+    public int getHeight();
+    public int getPower();
+    public int getCost();
+    public void shoot(Enemy e);
+    public Image getImageBullet();
+    public long getLastShoot();
 }

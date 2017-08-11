@@ -9,12 +9,20 @@ import com.sun.glass.events.KeyEvent;
 import game.graphics.Renderer;
 import game.input.InputHandler;
 import game.units.Enemy;
+import game.units.FireTowerType;
 import game.units.IUnits;
-import game.units.Player;
+import game.units.Tower;
+import game.units.ZombiType;
+import game.MyLevel;
+import game.units.IEnemyType;
+import game.units.ITowerType;
 import java.awt.Canvas;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics;
+import java.awt.Toolkit;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
 import java.awt.image.BufferStrategy;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
@@ -30,8 +38,8 @@ import javax.swing.JFrame;
  */
 public class Game extends Canvas{
     private static final long serialVersionUID = 1L;
-    public static int width = 300;
-    public static int height = width / 16 * 9;
+    public static int width = 900;
+    public static int height = 600;
     public static int scale = 3;
    
     private Renderer renderer;
@@ -42,28 +50,52 @@ public class Game extends Canvas{
     private JFrame jFrame;
     private Player player;
     private ArrayList<Enemy> enemies;
-    private ArrayList<IUnits> units;
-    private long lastGenerate = 0;
-    private BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-    private int[] pixels = ((DataBufferInt)image.getRaster().getDataBuffer()).getData();
-    
+    private long lastTimeGenerate;
+    ArrayList<Enemy> killedEnemies;
+    private MyLevel level;
+    private ITowerType fireTowerType;
+    private IEnemyType zombiType;
     public Game() {
-        Dimension size = new Dimension(width * scale, height * scale);
+        
+        Dimension size = new Dimension(width, height);
         setPreferredSize(size);
         jFrame = new JFrame(title);
-        renderer = new Renderer(width, height, pixels);
+        renderer = new Renderer(width, height);
         jFrame.addKeyListener(new InputHandler());
-        player = new Player(100, 0);
-        units = new ArrayList();
-        units.add(player);
-        
-        enemies = new ArrayList();
-        for(int i = 0; i < 10; i++) {
-            Enemy enemy = new Enemy(25 * i, 10 * i);
-            units.add(enemy);
-            enemies.add(enemy);
-        }
-        
+        this.addMouseListener(new MouseListener() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                System.out.println(e.getX() + " " + e.getY());
+                if(e.getY() < 310|| e.getY() > 400)
+                    player.buyTower(e.getX(), e.getY(), fireTowerType);
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+              
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+             
+            }
+
+            @Override
+            public void mouseEntered(MouseEvent e) {
+             
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+            
+            } 
+        });
+        fireTowerType = new FireTowerType();
+        zombiType = new ZombiType(); 
+        player = new Player();
+        level = new MyLevel();
+        killedEnemies = new ArrayList();
+        enemies = new ArrayList(); 
     }
     
     public synchronized void start() {
@@ -72,11 +104,11 @@ public class Game extends Canvas{
         thread = new Thread(()-> {
             long lastTime = System.nanoTime();
             long time = System.currentTimeMillis();
+            lastTimeGenerate = System.currentTimeMillis();
             double partTime = 1_000_000_000.0 / 60.0;
             double delta = 0;
             int updates = 0;
             int frames = 0;
-            lastGenerate = System.currentTimeMillis();
             while(running) {
                 long nowTime = System.nanoTime();
                 delta += (nowTime - lastTime);
@@ -115,84 +147,68 @@ public class Game extends Canvas{
             return;
         }
 
-        Graphics graphics = bs.getDrawGraphics();
-        renderer.clear();
-        graphics.drawImage(image, 0, 0, width * scale, height * scale, null);
-        renderer.render(units);
-        graphics.drawImage(image, 0, 0, width * scale, height * scale, null);
-        graphics.dispose();
+        Graphics g2 = bs.getDrawGraphics();
+        renderer.render(enemies, player.getTowers(), player, level, g2);
+        
         bs.show();
     }
     
-    private void randomEnemy() {
-        int x, y;
-        
-        if (System.currentTimeMillis() - lastGenerate > 5000) {
-            Random random = new Random();
-            for (int i = 0; i < 5; i++) {
-              Enemy e = new Enemy(random.nextInt(200), random.nextInt(2));
-              enemies.add(e);
-              units.add(e);
-            }  
-            lastGenerate = System.currentTimeMillis();
-        }
-        for(Enemy e : enemies) {
-            x = e.getX();
-            y = e.getY() + 1;
-            if(y <= 0)
-                y = height;
-            else if(y >= height)
-                y = 0;
-            e.setY(y);
-            
-            if (player.getX() >= e.getX() && 
-                player.getX() + player.getWidth() <= e.getX() + e.getWidth() ) {
-                System.out.println("xxx");
-                if (
-                    player.getY() >= e.getY() && 
-                    player.getY() + player.getHeight() < e.getY() + e.getHeight()
-                    ) {
-                    System.out.println("yyy");
-                    units.remove(player);
-                    jFrame.setTitle(title + " | Сори, ты проиграл, браааааааа!");
-                    running = false;
-                }
+    private void generateEnemies() {
+        if(System.currentTimeMillis() - level.getTimeLast() > level.getTimeBetween()){
+            for(int i = 0; i < level.getCount(); i++) {
+                Enemy e = new Enemy(0, 270 + new Random().nextInt(70), zombiType);
+                enemies.add(e);
             }
-            
+            level.nextLevel();
+            level.setTimeLast(System.currentTimeMillis());
         }
     }
 
     private void update() {
-        int x, y;
-        if (InputHandler.isKeyPressed(KeyEvent.VK_LEFT)){
-            x = player.getX() - player.getSpeed();
-            if(x < 0) x = width - 1;
-            if(x > width) x = 0;
-            player.setX(x);
+        generateEnemies();
+        
+        if(enemies.isEmpty())
+            return;
+        for(Enemy e : enemies) {
+            e.doNextStep();
+            if( e.isFinished(width) ) {
+               player.setLives(player.getLives() - 1);
+               killedEnemies.add(e);
+               if(player.getLives() == 0)
+                   running = false;
+           }
         }
-        if (InputHandler.isKeyPressed(KeyEvent.VK_RIGHT)){
-            x = player.getX() + player.getSpeed();
-            if(x < 0) x = width - 1;
-            if(x > width) x = 0;
-            player.setX(x);
+        killEnemy();
+    }
+    
+    private void killEnemy() {
+        boolean isAdded = false;
+        deleteEnemy(killedEnemies);
+        killedEnemies.clear();
+        for(Enemy e : enemies) {
+            for(Tower t : player.getTowers()) {
+                if(e.isAlive()) {
+                    // переписать самодокументированно !
+                    isAdded = false;
+                    if (Mathemat.GET_LENGTH(e.getX() - e.getWidth(), e.getY() - e.getHeight(), 
+                            t.getCenterX() + t.getRadius() / 2, 
+                            t.getCenterY() + t.getRadius() / 2) <= t.getRadius()) {
+                        t.shoot(e);
+                    }
+                } else if (!isAdded) {
+                    player.setMoney(player.getMoney() + e.getCost());
+                    player.setScore(player.getScore() + 1);
+                    isAdded = true;
+                    killedEnemies.add(e);
+                }
+            }
+        }  
+    }
+    
+    private void deleteEnemy(ArrayList<Enemy> killedEnemies) {
+        for(Enemy e : killedEnemies) {
+            enemies.remove(e);
         }
-        if (InputHandler.isKeyPressed(KeyEvent.VK_UP)){
-            y = player.getY() - player.getSpeed();
-            if(y <= 0) 
-                y = height - 1;
-            if(y >= height) 
-                y = 0;
-            player.setY(y);
-        }
-        if (InputHandler.isKeyPressed(KeyEvent.VK_DOWN)) {
-            y = player.getY() + player.getSpeed();
-            if(y <= 0) 
-                y = height - 1;
-            if(y >= height) 
-                y = 0;
-            player.setY(y);
-        }
-        randomEnemy();
     }
     
     private void init() {
@@ -204,7 +220,6 @@ public class Game extends Canvas{
         jFrame.setLocationRelativeTo(null);
         jFrame.setVisible(true);
         jFrame.setFocusable(true);
-        setVisible(true);
     }
     
     public static void main(String[] args) {
